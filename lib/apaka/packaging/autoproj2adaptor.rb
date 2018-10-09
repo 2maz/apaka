@@ -96,6 +96,9 @@ module Apaka
             end
 
             def pkginfo_from_pkg(pkg)
+                if Autoproj.manifest.excluded?(pkg.name)
+                    raise ArgumentError, "Apaka::Packaging::Autoproj2Adaptor::pkginfo_from_pkg: trying to get info from excluded package '#{pkg.name}'"
+                end
                 if @pkginfo_cache.has_key?(pkg.name)
                     return @pkginfo_cache[pkg.name]
                 end
@@ -253,7 +256,7 @@ module Apaka
 
             private
 
-            # Compute all packages that are require and their corresponding
+            # Compute all packages that are required and their corresponding
             # reverse dependencies
             # return [Hash<package_name, reverse_dependencies>]
             def reverse_dependencies(selection)
@@ -393,8 +396,22 @@ module Apaka
 
                 # Add the ruby requirements for the current rock selection
                 #todo: this used to work an all_packages without the already installed packages
+                allowed_packages = []
+                excluded_packages = []
                 all_packages.each do |pkg|
-                    deps = dependencies(pkg, with_rock_release_prefix)
+                    if Autoproj.manifest.excluded?(pkg.name)
+                        excluded_packages << pkg
+                        next
+                    end
+
+                    begin
+                        deps = dependencies(pkg, with_rock_release_prefix)
+                        allowed_packages << pkg
+                    rescue ArgumentError
+                        excluded_packages << pkg
+                        next
+                    end
+
                     # Update global list
                     extra_osdeps.concat deps[:osdeps]
                     extra_gems.concat deps[:extra_gems]
@@ -409,10 +426,11 @@ module Apaka
 
                 required_gems = all_required_gems(gem_versions)
                 
-                all_pkginfos = all_packages.map do |pkg|
+                all_pkginfos = allowed_packages.map do |pkg|
                     pkginfo_from_pkg(pkg)
                 end
 
+		Packaging.warn "Excluded packages: #{excluded_packages}"
                 {:pkginfos => all_pkginfos, :extra_osdeps => extra_osdeps, :extra_gems => extra_gems }.merge required_gems
             end
 
